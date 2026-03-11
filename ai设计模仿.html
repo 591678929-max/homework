@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圆环轨迹动画</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #050505; /* 深色背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="animationCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('animationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height, centerX, centerY;
+        
+        // 动画参数
+        const orbitRadius = 180;      // 大圆（轨道）的半径
+        const baseCircleRadius = 25;  // 留下的小圆的最大半径
+        const movingCircleRadius = 10; // 移动圆的半径 (比留下的圆小)
+        const speed = 0.008;          // 移动速度 (放慢)
+        let angle = 0;                // 当前角度
+        let relativeAngle = 0;        // 相对角度（用于计算留下轨迹的间隔）
+        const trailSpeed = -0.002;    // 轨迹圆沿路径逆时针移动的速度
+
+        // 轨迹参数
+        const trail = [];
+        const trailInterval = Math.PI / 8; // 每隔多少弧度留下一个圆 (这里是22.5度)
+        let lastTrailAngle = 0;
+
+        // 初始化和调整窗口大小
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 动画主循环
+        function draw() {
+            // 清空画布
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制留下的轨迹圆（虚线圆）
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 6]); // 设置虚线样式
+
+            trail.forEach(point => {
+                // 更新轨迹圆的位置（沿路径逆时针移动）
+                point.angle += trailSpeed;
+                point.x = centerX + orbitRadius * Math.cos(point.angle);
+                point.y = centerY + orbitRadius * Math.sin(point.angle);
+
+                // 计算当前角度与留下圆时的角度差（即圆的“年龄”）
+                let angleDiff = angle - point.angle;
+                // 确保角度差在 0 到 2PI 之间
+                while (angleDiff < 0) angleDiff += Math.PI * 2;
+                while (angleDiff >= Math.PI * 2) angleDiff -= Math.PI * 2;
+
+                // 定义放大过程占据的角度范围
+                const growAngle = 0.4; 
+                
+                let ratio;
+                let currentLineWidth = 2; // 默认线条粗细
+                let isGrowing = false;
+                
+                if (angleDiff < (Math.PI * 2 - growAngle)) {
+                    // 1. 缩小阶段：从刚留下到准备放大前
+                    ratio = 1 - (angleDiff / (Math.PI * 2 - growAngle));
+                    
+                    // 刚留下时(ratio=1)线条较粗，随着变小(ratio->0)逐渐变细
+                    // 基础粗细是 2，刚留下时增加 4，达到 6
+                    currentLineWidth = 2 + 4 * ratio; 
+                } else {
+                    // 2. 放大阶段：移动的圆靠近它，迅速放大
+                    ratio = (angleDiff - (Math.PI * 2 - growAngle)) / growAngle;
+                    isGrowing = true;
+                    
+                    // 放大过程中，线条明显变粗
+                    currentLineWidth = 2 + Math.sin(ratio * Math.PI) * 6; 
+                }
+                
+                // 最小半径为 2，最大为 baseCircleRadius
+                const currentRadius = 2 + (baseCircleRadius - 2) * ratio;
+                
+                // 【关键修复】按比例缩放虚线，防止半径变化时产生“旋转”的视觉错觉
+                const dashScale = currentRadius / baseCircleRadius;
+                ctx.setLineDash([8 * dashScale, 6 * dashScale]);
+
+                ctx.lineWidth = currentLineWidth;
+
+                // 高亮效果：放大时颜色更亮，并带有发光效果
+                if (isGrowing) {
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = Math.sin(ratio * Math.PI) * 15; // 动态发光
+                } else {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, currentRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 重置阴影
+                ctx.shadowBlur = 0;
+            });
+
+            // 计算当前移动圆的坐标
+            const x = centerX + orbitRadius * Math.cos(angle);
+            const y = centerY + orbitRadius * Math.sin(angle);
+
+            // 判断是否达到了留下轨迹的距离
+            if (relativeAngle - lastTrailAngle >= trailInterval) {
+                trail.push({ x, y, angle });
+                lastTrailAngle += trailInterval; // 保持精确的间隔
+                
+                // 保持轨迹数量，形成一个完整的闭环后替换最旧的
+                const maxTrailCount = Math.floor((Math.PI * 2) / trailInterval);
+                if (trail.length > maxTrailCount) {
+                    trail.shift(); // 移除最早留下的圆
+                }
+            }
+
+            // 绘制当前正在移动的虚线圆（较小）
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 8; // 调粗到和放大的圆最粗时一样 (2 + 6 = 8)
+            
+            // 为了让小圆的虚线看起来和谐，等比例缩小虚线间隔
+            const movingDashScale = movingCircleRadius / baseCircleRadius;
+            ctx.setLineDash([8 * movingDashScale, 6 * movingDashScale]); 
+            
+            // 给移动的小圆也加上发光效果，保持视觉统一
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 15;
+
+            ctx.beginPath();
+            ctx.arc(x, y, movingCircleRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // 重置阴影
+            ctx.shadowBlur = 0;
+
+            // 增加角度，驱动动画
+            angle += speed;
+            relativeAngle += (speed - trailSpeed); // 相对角度增加（两者相向而行，速度叠加）
+
+            // 循环调用
+            requestAnimationFrame(draw);
+        }
+
+        // 启动动画
+        draw();
+    </script>
+</body>
+</html>
